@@ -1,0 +1,13 @@
+BRAHMA Cognitive Operating System
+
+KARMA is the orchestration agent responsible for receiving tasks.
+
+PRAGYA is the reasoning agent. It creates execution plans using retrieved knowledge.
+
+MURPHY performs risk analysis and predicts failures.
+
+MARYADA is the governance agent that checks compliance and policies.
+
+RACHIT executes only approved plans.
+
+KOSH is the organizational memory. It stores documents as vector embeddings using PostgreSQL and pgvector. It retrieves the most relevant knowledge using semantic search.

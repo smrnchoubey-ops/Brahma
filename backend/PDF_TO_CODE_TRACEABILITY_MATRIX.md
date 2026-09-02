@@ -1,0 +1,14 @@
+# BRAHMA PDF-to-Code Traceability Matrix
+
+| Requirement from PDF | PDF Page | Expected Implementation | Actual File/Module | Actual Status | Evidence | Gap |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **9 Reasoning Paths** | 9 | NETRA, SMRITI, KOSH, PRAGYA, VIVEK, MARYADA, NIYANTRA, RACHIT, BRAHMA | `backend/agents/nodes/` | PARTIALLY IMPLEMENTED | Only KARMA, KOSH, PRAGYA, MURPHY, MARYADA, RACHIT exist. | NETRA, SMRITI, VIVEK, NIYANTRA, BRAHMA missing. |
+| **15 Cognitive Faculties** | 10 | F1 through F15 | `backend/agents/nodes/` | PARTIALLY IMPLEMENTED | Prompts loosely align with F2, F3b, F10, F4. No formal contracts enforced via Dispatcher. | No Faculty Registry, no formal interfaces, missing F1, F3a, F5, F6, F7, F8, F9, F11, F12, F13, F14, F15. |
+| **4-Tier Cognitive Memory** | 16 | Working, Episodic, Semantic, Strategic Memory stores | `backend/app/models/` | NOT IMPLEMENTED | Simple PostgreSQL tasks table + pgvector document store. | No episodic episodes, semantic concept graphs, or strategic missions. No Memory Sync. |
+| **KARMA Execution Layer** | 21 | Planner, Executor, Tool Router, Retry, Validator | `backend/agents/nodes/rachit.py` | NOT IMPLEMENTED | RACHIT simulates execution via text output. No real tool routing or plan DAG decomposition. | Complete execution engine missing. No tool registry or circuit breakers. |
+| **CHITRA Audit Ledger** | 24 | Cryptographically chained, append-only, immutable event ledger | `backend/app/services/audit.py` | PARTIALLY IMPLEMENTED | Standard relational DB logging (`AuditEvent` table). | No cryptographic hashing, no chain integrity, no Replay Engine. |
+| **BRAHMA Constitution vFinal** | 29 | Immutable principles, machine-enforceable rules, 3-tier hierarchy | `backend/agents/nodes/maryada.py` | PARTIALLY IMPLEMENTED | `MARYADA` uses a generic prompt to approve/deny. | No `F10` extraction of specific rule predicates. No machine-enforceable rule evaluator. |
+| **Runtime State Machine** | 26 | 14 formal states (IDLE, PERCEIVE, MEMORY, VERIFY...) | `backend/agents/graph.py` | NOT IMPLEMENTED | Uses LangGraph with node-to-node direct routing. | No Event Bus, no Scheduler, no Dispatcher. |
+| **Federation** | 48 | Multi-Agent Coordination, Consensus Engine, Shared Ledger | N/A | NOT IMPLEMENTED | Single-agent process running on Uvicorn. | No multi-agent deployment, no BFT consensus. |
+| **Learning System** | 46 | Evolutionary Stewardship, Regression Suite, Shadow Deploy | N/A | NOT IMPLEMENTED | No learning mechanism present. | No F14/F15, no shadow deployments, no regression prevention. |
+| **Trust Score / Security** | 38 | Input sanitization, trust scoring, secret vault | `backend/app/core/llm.py` | NOT IMPLEMENTED | Raw prompts sent to OpenRouter. | No trust scoring, no PII redaction, no authority tokens. |
