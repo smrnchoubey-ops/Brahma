@@ -26,6 +26,12 @@ coverage/
 *.pdf
 *.md
 
+# Archives
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+
 # Logs & Storage
 *.log
 backend/app/uploads/
