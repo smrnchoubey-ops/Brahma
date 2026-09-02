@@ -20,6 +20,11 @@ node_modules/
 dist/
 build/
 coverage/
+*.tsbuildinfo
+
+# Documentation & Reports
+*.pdf
+*.md
 
 # Logs & Storage
 *.log
@@ -41,4 +46,4 @@ backend/temp_task_id.txt
 .DS_Store
 Thumbs.db
 .vscode/
-.idea/*.tsbuildinfo
+.idea/
