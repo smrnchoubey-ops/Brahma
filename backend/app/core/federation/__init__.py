@@ -2,6 +2,7 @@
 FEDERATION SYSTEM Core Package (Whitesheet §18.0 - §18.6)
 Phase 18A: Federation Data Models & Cryptographic Node Identity.
 Phase 18B: Node Trust Registry & Peer Handshake.
+Phase 18C: Distributed Pattern & Memory Synchronization.
 """
 from app.core.federation.models import (
     TrustTier,
@@ -21,6 +22,11 @@ from app.core.federation.trust import (
 from app.core.federation.handshake import (
     NodeHandshakeService
 )
+from app.core.federation.sync import (
+    SyncPayloadError,
+    FederatedSyncStore,
+    FederatedSyncService
+)
 
 __all__ = [
     "TrustTier",
@@ -32,5 +38,8 @@ __all__ = [
     "canonical_message_bytes",
     "NodeTrustRegistry",
     "TrustTransitionError",
-    "NodeHandshakeService"
+    "NodeHandshakeService",
+    "SyncPayloadError",
+    "FederatedSyncStore",
+    "FederatedSyncService"
 ]
