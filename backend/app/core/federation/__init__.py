@@ -4,6 +4,7 @@ Phase 18A: Federation Data Models & Cryptographic Node Identity.
 Phase 18B: Node Trust Registry & Peer Handshake.
 Phase 18C: Distributed Pattern & Memory Synchronization.
 Phase 18D: Conflict Resolution & Convergence.
+Phase 18E: Cross-Node Constitutional Governance & Blast Radius.
 """
 from app.core.federation.models import (
     TrustTier,
@@ -34,6 +35,11 @@ from app.core.federation.conflict import (
     FederatedVersionedRecord,
     ConflictResolutionEngine
 )
+from app.core.federation.governance import (
+    GovernanceDecision,
+    FederatedGovernanceVerdict,
+    FederatedGovernanceEngine
+)
 
 __all__ = [
     "TrustTier",
@@ -52,5 +58,8 @@ __all__ = [
     "VectorComparison",
     "VersionVector",
     "FederatedVersionedRecord",
-    "ConflictResolutionEngine"
+    "ConflictResolutionEngine",
+    "GovernanceDecision",
+    "FederatedGovernanceVerdict",
+    "FederatedGovernanceEngine"
 ]
