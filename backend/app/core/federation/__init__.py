@@ -3,6 +3,7 @@ FEDERATION SYSTEM Core Package (Whitesheet §18.0 - §18.6)
 Phase 18A: Federation Data Models & Cryptographic Node Identity.
 Phase 18B: Node Trust Registry & Peer Handshake.
 Phase 18C: Distributed Pattern & Memory Synchronization.
+Phase 18D: Conflict Resolution & Convergence.
 """
 from app.core.federation.models import (
     TrustTier,
@@ -27,6 +28,12 @@ from app.core.federation.sync import (
     FederatedSyncStore,
     FederatedSyncService
 )
+from app.core.federation.conflict import (
+    VectorComparison,
+    VersionVector,
+    FederatedVersionedRecord,
+    ConflictResolutionEngine
+)
 
 __all__ = [
     "TrustTier",
@@ -41,5 +48,9 @@ __all__ = [
     "NodeHandshakeService",
     "SyncPayloadError",
     "FederatedSyncStore",
-    "FederatedSyncService"
+    "FederatedSyncService",
+    "VectorComparison",
+    "VersionVector",
+    "FederatedVersionedRecord",
+    "ConflictResolutionEngine"
 ]
