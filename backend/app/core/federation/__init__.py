@@ -5,6 +5,7 @@ Phase 18B: Node Trust Registry & Peer Handshake.
 Phase 18C: Distributed Pattern & Memory Synchronization.
 Phase 18D: Conflict Resolution & Convergence.
 Phase 18E: Cross-Node Constitutional Governance & Blast Radius.
+Phase 18F: Federated CHITRA Audit Integration.
 """
 from app.core.federation.models import (
     TrustTier,
@@ -40,6 +41,11 @@ from app.core.federation.governance import (
     FederatedGovernanceVerdict,
     FederatedGovernanceEngine
 )
+from app.core.federation.audit import (
+    FederationAuditEventType,
+    FederatedAuditEvent,
+    FederatedChitraAuditService
+)
 
 __all__ = [
     "TrustTier",
@@ -61,5 +67,8 @@ __all__ = [
     "ConflictResolutionEngine",
     "GovernanceDecision",
     "FederatedGovernanceVerdict",
-    "FederatedGovernanceEngine"
+    "FederatedGovernanceEngine",
+    "FederationAuditEventType",
+    "FederatedAuditEvent",
+    "FederatedChitraAuditService"
 ]
