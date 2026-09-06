@@ -38,6 +38,8 @@ backend/app/uploads/
 
 # Databases & Test Artifacts
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
 evidence.txt

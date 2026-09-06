@@ -32,7 +32,8 @@ class LearningService:
         episodes: List[Dict[str, Any]],
         pattern_type: PatternType = PatternType.PLAN_OPTIMIZATION,
         name: Optional[str] = None,
-        description: Optional[str] = None
+        description: Optional[str] = None,
+        k_min: int = F14PatternExtractor.DEFAULT_K_MIN
     ) -> LearningCandidate:
         """
         F14 Pattern Extraction entrypoint.
@@ -42,7 +43,8 @@ class LearningService:
             episodes=episodes,
             pattern_type=pattern_type,
             name=name,
-            description=description
+            description=description,
+            k_min=k_min
         )
 
     @classmethod

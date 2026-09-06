@@ -7,6 +7,7 @@ Phase 18D: Conflict Resolution & Convergence.
 Phase 18E: Cross-Node Constitutional Governance & Blast Radius.
 Phase 18F: Federated CHITRA Audit Integration.
 Phase 18G: Federation Replay Protection & Security Validation.
+Phase 18H: Unified Federation Ingress/Egress Pipeline & Lifecycle Orchestrator.
 """
 from app.core.federation.models import (
     TrustTier,
@@ -52,6 +53,11 @@ from app.core.federation.replay import (
     ReplayCheckVerdict,
     FederationReplayGuard
 )
+from app.core.federation.orchestrator import (
+    FederationIngressResult,
+    FederationEgressDispatcher,
+    FederationPipelineCoordinator
+)
 
 __all__ = [
     "TrustTier",
@@ -79,5 +85,8 @@ __all__ = [
     "FederatedChitraAuditService",
     "ReplayStatus",
     "ReplayCheckVerdict",
-    "FederationReplayGuard"
+    "FederationReplayGuard",
+    "FederationIngressResult",
+    "FederationEgressDispatcher",
+    "FederationPipelineCoordinator"
 ]

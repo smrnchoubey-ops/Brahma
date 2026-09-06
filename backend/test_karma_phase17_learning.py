@@ -71,7 +71,8 @@ def reset_sandbox():
 def test_1_f14_pattern_extraction_basic():
     episodes = [
         {"task_id": 901, "event_id": "evt_1", "status": "SUCCESS", "duration_ms": 120.0, "tool": "calc"},
-        {"task_id": 902, "event_id": "evt_2", "status": "SUCCESS", "duration_ms": 110.0, "tool": "calc"}
+        {"task_id": 902, "event_id": "evt_2", "status": "SUCCESS", "duration_ms": 110.0, "tool": "calc"},
+        {"task_id": 903, "event_id": "evt_3", "status": "SUCCESS", "duration_ms": 115.0, "tool": "calc"}
     ]
     candidate = LearningService.extract_pattern(
         tenant_id="tenant_alice",
@@ -81,12 +82,16 @@ def test_1_f14_pattern_extraction_basic():
     assert candidate.pattern_id.startswith("pat_")
     assert candidate.status == PatternStatus.CANDIDATE
     assert candidate.tenant_id == "tenant_alice"
-    assert candidate.evidence.sample_count == 2
+    assert candidate.evidence.sample_count == 3
     assert candidate.confidence >= 0.5
 
 
 def test_2_f14_deterministic_candidate_output():
-    episodes = [{"task_id": 903, "event_id": "evt_3", "status": "SUCCESS", "duration_ms": 100.0}]
+    episodes = [
+        {"task_id": 903, "event_id": "evt_3", "status": "SUCCESS", "duration_ms": 100.0},
+        {"task_id": 904, "event_id": "evt_4", "status": "SUCCESS", "duration_ms": 105.0},
+        {"task_id": 905, "event_id": "evt_5", "status": "SUCCESS", "duration_ms": 95.0}
+    ]
     c1 = F14PatternExtractor.extract_pattern("tenant_alice", episodes, name="FixedName")
     assert c1.name == "FixedName"
     assert c1.status == PatternStatus.CANDIDATE
@@ -105,11 +110,13 @@ def test_4_f14_empty_episodes_rejection():
 def test_5_f14_provenance_preservation():
     episodes = [
         {"task_id": 904, "event_id": "evt_4a", "status": "SUCCESS"},
-        {"task_id": 905, "event_id": "evt_4b", "status": "SUCCESS"}
+        {"task_id": 905, "event_id": "evt_4b", "status": "SUCCESS"},
+        {"task_id": 906, "event_id": "evt_4c", "status": "SUCCESS"}
     ]
     candidate = F14PatternExtractor.extract_pattern("tenant_alice", episodes)
     assert 904 in candidate.evidence.source_task_ids
     assert 905 in candidate.evidence.source_task_ids
+    assert 906 in candidate.evidence.source_task_ids
     assert "evt_4a" in candidate.evidence.source_event_ids
 
 
@@ -131,7 +138,11 @@ def test_6_candidate_schema_invariants():
 # -------------------------------------------------------------
 
 def test_7_f15_candidate_state_transitions():
-    episodes = [{"task_id": 906, "status": "SUCCESS"}]
+    episodes = [
+        {"task_id": 906, "status": "SUCCESS"},
+        {"task_id": 907, "status": "SUCCESS"},
+        {"task_id": 908, "status": "SUCCESS"}
+    ]
     cand = F14PatternExtractor.extract_pattern("tenant_alice", episodes)
 
     # 1. CANDIDATE -> VALIDATED
@@ -362,7 +373,11 @@ def test_19_le_score_above_threshold_enables_promotion():
 # -------------------------------------------------------------
 
 def test_20_f15_successful_promotion_lifecycle():
-    episodes = [{"task_id": 907, "status": "SUCCESS", "duration_ms": 50.0}]
+    episodes = [
+        {"task_id": 907, "status": "SUCCESS", "duration_ms": 50.0},
+        {"task_id": 908, "status": "SUCCESS", "duration_ms": 55.0},
+        {"task_id": 909, "status": "SUCCESS", "duration_ms": 45.0}
+    ]
     cand = F14PatternExtractor.extract_pattern("tenant_alice", episodes)
 
     promoted, msg, updated = LearningService.process_candidate_lifecycle(
@@ -410,8 +425,22 @@ def test_23_empty_tenant_id_fails_closed():
 
 
 def test_24_cross_tenant_pattern_isolation():
-    c_alice = F14PatternExtractor.extract_pattern("tenant_alice", [{"task_id": 909, "status": "SUCCESS"}])
-    c_bob = F14PatternExtractor.extract_pattern("tenant_bob", [{"task_id": 910, "status": "SUCCESS"}])
+    c_alice = F14PatternExtractor.extract_pattern(
+        "tenant_alice",
+        [
+            {"task_id": 909, "status": "SUCCESS"},
+            {"task_id": 910, "status": "SUCCESS"},
+            {"task_id": 911, "status": "SUCCESS"}
+        ]
+    )
+    c_bob = F14PatternExtractor.extract_pattern(
+        "tenant_bob",
+        [
+            {"task_id": 912, "status": "SUCCESS"},
+            {"task_id": 913, "status": "SUCCESS"},
+            {"task_id": 914, "status": "SUCCESS"}
+        ]
+    )
     assert c_alice.tenant_id != c_bob.tenant_id
     assert c_alice.pattern_id != c_bob.pattern_id
 
@@ -424,7 +453,14 @@ def test_25_chitra_pattern_extracted_audit_event():
     u_a, t_a, _, _ = reset_sandbox()
     db = TestSession()
 
-    cand = F14PatternExtractor.extract_pattern(f"tenant_{u_a}", [{"task_id": t_a, "status": "SUCCESS"}])
+    cand = F14PatternExtractor.extract_pattern(
+        f"tenant_{u_a}",
+        [
+            {"task_id": t_a, "event_id": "evt_25_a", "status": "SUCCESS"},
+            {"task_id": t_a, "event_id": "evt_25_b", "status": "SUCCESS"},
+            {"task_id": t_a, "event_id": "evt_25_c", "status": "SUCCESS"}
+        ]
+    )
     F15EvolutionarySteward.validate_candidate(cand, db_session=db, user_id=u_a, task_id=t_a)
 
     evt = db.query(ChitraEvent).filter(ChitraEvent.task_id == t_a, ChitraEvent.faculty == "LEARNING").first()
@@ -463,7 +499,14 @@ def test_27_chitra_cryptographic_verification_learning_events():
     u_a, t_a, _, _ = reset_sandbox()
     db = TestSession()
 
-    cand = F14PatternExtractor.extract_pattern(f"tenant_{u_a}", [{"task_id": t_a, "status": "SUCCESS"}])
+    cand = F14PatternExtractor.extract_pattern(
+        f"tenant_{u_a}",
+        [
+            {"task_id": t_a, "event_id": "evt_27_a", "status": "SUCCESS"},
+            {"task_id": t_a, "event_id": "evt_27_b", "status": "SUCCESS"},
+            {"task_id": t_a, "event_id": "evt_27_c", "status": "SUCCESS"}
+        ]
+    )
     LearningService.process_candidate_lifecycle(
         candidate=cand,
         le_threshold=0.30,
@@ -484,7 +527,11 @@ def test_27_chitra_cryptographic_verification_learning_events():
 
 def test_28_concurrent_candidate_processing_isolation():
     def process_worker(i: int):
-        episodes = [{"task_id": 1000 + i, "status": "SUCCESS", "duration_ms": 50.0}]
+        episodes = [
+            {"task_id": 1000 + i, "status": "SUCCESS", "duration_ms": 50.0},
+            {"task_id": 2000 + i, "status": "SUCCESS", "duration_ms": 55.0},
+            {"task_id": 3000 + i, "status": "SUCCESS", "duration_ms": 45.0}
+        ]
         cand = LearningService.extract_pattern(f"tenant_{i % 3}", episodes)
         promoted, _, u = LearningService.process_candidate_lifecycle(cand, le_threshold=0.30)
         return promoted, u.status
@@ -503,8 +550,9 @@ def test_29_full_end_to_end_learning_service_lifecycle():
     db = TestSession()
 
     episodes = [
-        {"task_id": t_a, "status": "SUCCESS", "duration_ms": 80.0, "tool": "calc"},
-        {"task_id": t_a, "status": "SUCCESS", "duration_ms": 75.0, "tool": "calc"}
+        {"task_id": t_a, "event_id": "evt_29_a", "status": "SUCCESS", "duration_ms": 80.0, "tool": "calc"},
+        {"task_id": t_a, "event_id": "evt_29_b", "status": "SUCCESS", "duration_ms": 75.0, "tool": "calc"},
+        {"task_id": t_a, "event_id": "evt_29_c", "status": "SUCCESS", "duration_ms": 70.0, "tool": "calc"}
     ]
     cand = LearningService.extract_pattern(
         tenant_id=f"tenant_{u_a}",

@@ -1,11 +1,13 @@
 import os
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from sqlalchemy.orm import Session
 
 from app.services.pdf_service import extract_text
 from app.services.chunk_service import split_into_chunks
 from app.services.embedding_service import generate_embedding
 
-from app.db.database import SessionLocal
+from app.db.database import get_db
+from app.api.auth import get_current_user
 from app.models.knowledge import Knowledge
 
 router = APIRouter(prefix="/upload", tags=["Upload"])
@@ -15,7 +17,11 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
 @router.post("/")
-async def upload_pdf(file: UploadFile = File(...)):
+async def upload_pdf(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
     file_path = os.path.join(UPLOAD_DIR, file.filename)
 
     with open(file_path, "wb") as f:
@@ -24,7 +30,6 @@ async def upload_pdf(file: UploadFile = File(...)):
     text = extract_text(file_path)
     chunks = split_into_chunks(text)
 
-    db = SessionLocal()
     try:
         for chunk in chunks:
             embedding = generate_embedding(chunk)
@@ -32,7 +37,8 @@ async def upload_pdf(file: UploadFile = File(...)):
             knowledge = Knowledge(
                 title=file.filename,
                 content=chunk,
-                embedding=embedding
+                embedding=embedding,
+                user_id=current_user.id
             )
             db.add(knowledge)
 
@@ -43,10 +49,9 @@ async def upload_pdf(file: UploadFile = File(...)):
             status_code=500,
             detail=f"Document upload failed during embedding generation: {str(e)}"
         )
-    finally:
-        db.close()
 
     return {
         "message": "Knowledge uploaded successfully",
-        "chunks": len(chunks)
+        "chunks": len(chunks),
+        "uploaded_by": current_user.username
     }
