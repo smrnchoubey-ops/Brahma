@@ -26,10 +26,14 @@ class PolicyVerdict(BaseModel):
 class AgentState(TypedDict):
     # Tracing / Identity
     task_id: int
+    user_id: Optional[int]
+    tenant_id: Optional[str]
+    session_id: Optional[str]
     trace_id: str
     
     # Input
     intent: str
+    memory_context: Optional[str]
     knowledge_context: Optional[str]
     
     # Execution State

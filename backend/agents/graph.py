@@ -3,6 +3,7 @@ from typing import Dict, Any, Literal
 from langgraph.graph import StateGraph, END
 from .state import AgentState
 from .nodes.karma import karma_node
+from .nodes.smriti import smriti_node
 from .nodes.pragya import pragya_node
 from .nodes.murphy import murphy_node
 from .nodes.maryada import maryada_node
@@ -25,6 +26,7 @@ workflow = StateGraph(AgentState)
 
 # Add Nodes
 workflow.add_node("karma", karma_node)
+workflow.add_node("smriti", smriti_node)
 workflow.add_node("kosh", kosh_node)
 workflow.add_node("pragya", pragya_node)
 workflow.add_node("murphy", murphy_node)
@@ -33,7 +35,8 @@ workflow.add_node("rachit", rachit_node)
 
 # Define Edges
 workflow.set_entry_point("karma")
-workflow.add_edge("karma", "kosh")
+workflow.add_edge("karma", "smriti")
+workflow.add_edge("smriti", "kosh")
 workflow.add_edge("kosh", "pragya")
 workflow.add_edge("pragya", "murphy")
 workflow.add_edge("murphy", "maryada")

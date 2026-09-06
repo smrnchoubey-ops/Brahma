@@ -6,7 +6,7 @@ from ..state import AgentState, PragyaPlan
 def pragya_node(state: AgentState) -> Dict[str, Any]:
     print(f"[PRAGYA] Reasoning over intent...")
     
-    if state.get("status") in ["KARMA_FAILED", "KOSH_SKIPPED"] or state.get("errors"):
+    if state.get("status") in ["KARMA_FAILED", "SMRITI_FAILED", "SMRITI_SKIPPED", "KOSH_FAILED", "KOSH_SKIPPED"] or state.get("errors"):
         return {
             "current_agent": "PRAGYA",
             "status": "PRAGYA_SKIPPED"
@@ -29,8 +29,9 @@ Example output format:
 Do not include any other text, markdown blocks, or chain-of-thought in your response, ONLY the raw JSON object.
 """
     
+    memory = state.get("memory_context", "")
     knowledge = state.get("knowledge_context", "")
-    user_prompt = f"Intent: {intent}\n\nContext:\n{knowledge}"
+    user_prompt = f"Intent: {intent}\n\nMemory Continuity:\n{memory}\n\nKnowledge Context:\n{knowledge}"
     
     try:
         response = call_llm(
