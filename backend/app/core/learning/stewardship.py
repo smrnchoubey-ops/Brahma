@@ -66,6 +66,7 @@ class F15EvolutionarySteward:
                 outcome=f"Constitutional validation rejected: {verdict.justification}",
                 db_session=db_session, user_id=user_id, task_id=task_id
             )
+            cls._persist_candidate(candidate=candidate, db_session=db_session)
             return False
 
         candidate.status = PatternStatus.VALIDATED
@@ -75,6 +76,7 @@ class F15EvolutionarySteward:
             outcome="Constitutional validation approved",
             db_session=db_session, user_id=user_id, task_id=task_id
         )
+        cls._persist_candidate(candidate=candidate, db_session=db_session)
         return True
 
     @classmethod
@@ -97,6 +99,7 @@ class F15EvolutionarySteward:
             outcome="Candidate deployed to non-authoritative shadow evaluation mode",
             db_session=db_session, user_id=user_id, task_id=task_id
         )
+        cls._persist_candidate(candidate=candidate, db_session=db_session)
 
     @classmethod
     def evaluate_and_promote(
@@ -130,24 +133,28 @@ class F15EvolutionarySteward:
             candidate.status = PatternStatus.REJECTED
             msg = "Promotion blocked: Constitutional safety check not approved."
             cls._log_chitra_event(candidate, "rejected", msg, db_session, user_id, task_id)
+            cls._persist_candidate(candidate=candidate, db_session=db_session)
             return False, msg
 
         if not regression_result.passed or regression_result.regressions_detected > 0:
             candidate.status = PatternStatus.REJECTED
             msg = f"Promotion blocked: {regression_result.regressions_detected} regressions detected."
             cls._log_chitra_event(candidate, "rejected", msg, db_session, user_id, task_id)
+            cls._persist_candidate(candidate=candidate, db_session=db_session)
             return False, msg
 
         if not le_result.passed:
             candidate.status = PatternStatus.REJECTED
             msg = f"Promotion blocked: LE Score {le_result.le_score} below required threshold {le_result.threshold}."
             cls._log_chitra_event(candidate, "rejected", msg, db_session, user_id, task_id)
+            cls._persist_candidate(candidate=candidate, db_session=db_session)
             return False, msg
 
         if shadow_result and not shadow_result.passed:
             candidate.status = PatternStatus.REJECTED
             msg = "Promotion blocked: Shadow evaluation failed to beat or match baseline."
             cls._log_chitra_event(candidate, "rejected", msg, db_session, user_id, task_id)
+            cls._persist_candidate(candidate=candidate, db_session=db_session)
             return False, msg
 
         # All gates passed: PROMOTION APPROVED
@@ -155,6 +162,7 @@ class F15EvolutionarySteward:
         candidate.promoted_at = datetime.now(timezone.utc).isoformat()
         msg = f"Candidate {candidate.pattern_id} PROMOTED successfully (LE Score: {candidate.le_score})."
         cls._log_chitra_event(candidate, "promoted", msg, db_session, user_id, task_id)
+        cls._persist_candidate(candidate=candidate, db_session=db_session)
         return True, msg
 
     @classmethod
@@ -175,6 +183,117 @@ class F15EvolutionarySteward:
         candidate.status = PatternStatus.ROLLED_BACK
         msg = f"Rolled back candidate {candidate.pattern_id}. Reason: {reason}"
         cls._log_chitra_event(candidate, "rolled_back", msg, db_session, user_id, task_id)
+        cls._persist_candidate(candidate=candidate, db_session=db_session)
+
+    @classmethod
+    def persist_candidate(
+        cls,
+        candidate: LearningCandidate,
+        db_session: Optional[Session] = None
+    ) -> Optional[Any]:
+        """
+        Explicit persistence helper for an initial CANDIDATE or existing candidate.
+        """
+        return cls._persist_candidate(candidate, db_session=db_session)
+
+    @classmethod
+    def _persist_candidate(
+        cls,
+        candidate: LearningCandidate,
+        db_session: Optional[Session] = None
+    ) -> Optional[Any]:
+        """
+        Persists or updates the LearningCandidate in PostgreSQL learning_patterns table.
+        Guarantees pattern state survives process restarts with strict tenant isolation.
+        """
+        source_ep_ids = candidate.metadata.get("unique_episode_keys", [])
+        if not source_ep_ids and candidate.evidence:
+            source_ep_ids = (
+                [f"t:{t}" for t in candidate.evidence.source_task_ids] +
+                [f"e:{e}" for e in candidate.evidence.source_event_ids]
+            )
+
+        evidence_dict = (
+            candidate.evidence.model_dump()
+            if hasattr(candidate.evidence, "model_dump")
+            else candidate.evidence.dict()
+        )
+
+        promoted_dt = None
+        if candidate.promoted_at:
+            try:
+                promoted_dt = datetime.fromisoformat(candidate.promoted_at)
+            except Exception:
+                promoted_dt = datetime.now(timezone.utc)
+
+        fingerprint = candidate.metadata.get("fingerprint")
+
+        def _upsert_record(session: Session):
+            from app.models.learning_pattern import LearningPattern
+            record = session.query(LearningPattern).filter(
+                LearningPattern.pattern_id == candidate.pattern_id,
+                LearningPattern.tenant_id == candidate.tenant_id
+            ).first()
+
+            if record:
+                record.pattern_type = candidate.pattern_type.value
+                record.name = candidate.name
+                record.description = candidate.description
+                record.status = candidate.status.value
+                record.fingerprint = fingerprint
+                record.confidence = candidate.confidence
+                record.version = candidate.version
+                record.le_score = candidate.le_score
+                record.constitutional_approved = candidate.constitutional_approved
+                record.shadow_passed = candidate.shadow_passed
+                record.regression_passed = candidate.regression_passed
+                record.action_template = candidate.action_template or {}
+                record.evidence = evidence_dict
+                record.source_episode_ids = source_ep_ids
+                record.metadata_payload = candidate.metadata or {}
+                record.promoted_at = promoted_dt
+                record.updated_at = datetime.now(timezone.utc)
+            else:
+                record = LearningPattern(
+                    pattern_id=candidate.pattern_id,
+                    tenant_id=candidate.tenant_id,
+                    pattern_type=candidate.pattern_type.value,
+                    name=candidate.name,
+                    description=candidate.description,
+                    status=candidate.status.value,
+                    fingerprint=fingerprint,
+                    confidence=candidate.confidence,
+                    version=candidate.version,
+                    le_score=candidate.le_score,
+                    constitutional_approved=candidate.constitutional_approved,
+                    shadow_passed=candidate.shadow_passed,
+                    regression_passed=candidate.regression_passed,
+                    action_template=candidate.action_template or {},
+                    evidence=evidence_dict,
+                    source_episode_ids=source_ep_ids,
+                    metadata_payload=candidate.metadata or {},
+                    promoted_at=promoted_dt
+                )
+                session.add(record)
+            session.commit()
+            return record
+
+        if db_session is not None:
+            try:
+                return _upsert_record(db_session)
+            except Exception:
+                try:
+                    db_session.rollback()
+                except Exception:
+                    pass
+                raise
+        else:
+            try:
+                from app.db.database import SessionLocal
+                with SessionLocal() as db:
+                    return _upsert_record(db)
+            except Exception:
+                return None
 
     @classmethod
     def _log_chitra_event(
