@@ -1,3 +1,4 @@
+
 """
 Learning Effectiveness (LE) Calculation Engine
 Strictly conforms to BRAHMA COS Whitesheet §19.5 Specification.
@@ -91,7 +92,7 @@ class LearningEffectivenessEngine:
 
         regression_penalty = lambda_reg * regression_count
 
-        # Additional fail-closed penalty if constitutional check was explicitly rejected
+        # Note: This constitutional safety penalty term (-0.30) is a defense-in-depth safety addition beyond the literal Whitesheet §19.5 formula.
         constitutional_penalty = 0.0
         if not candidate.constitutional_approved:
             constitutional_penalty = 0.30
