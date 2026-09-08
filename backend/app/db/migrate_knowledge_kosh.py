@@ -12,7 +12,7 @@ def migrate_kosh_knowledge_schema():
         
         # 1. Add missing columns to existing table
         alter_queries = [
-            "ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) NOT NULL DEFAULT 'global';",
+            "ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) NOT NULL;",
             "ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS provenance_source VARCHAR(255) NOT NULL DEFAULT 'unspecified';",
             "ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS source_uri VARCHAR(512);",
             "ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS confidence_score DOUBLE PRECISION NOT NULL DEFAULT 1.0;",

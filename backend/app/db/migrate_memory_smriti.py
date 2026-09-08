@@ -17,7 +17,7 @@ def migrate_smriti_memory_schema():
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS memory (
                 id SERIAL PRIMARY KEY,
-                tenant_id VARCHAR(64) NOT NULL DEFAULT 'global',
+                tenant_id VARCHAR(64) NOT NULL,
                 user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
                 session_id VARCHAR(128),
                 task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
@@ -34,7 +34,7 @@ def migrate_smriti_memory_schema():
 
         # 2. Add any missing columns to existing table
         alter_queries = [
-            "ALTER TABLE memory ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) NOT NULL DEFAULT 'global';",
+            "ALTER TABLE memory ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) NOT NULL;",
             "ALTER TABLE memory ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;",
             "ALTER TABLE memory ADD COLUMN IF NOT EXISTS session_id VARCHAR(128);",
             "ALTER TABLE memory ADD COLUMN IF NOT EXISTS task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL;",

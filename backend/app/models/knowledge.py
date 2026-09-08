@@ -8,7 +8,7 @@ class Knowledge(Base):
     __tablename__ = "knowledge"
 
     id = Column(Integer, primary_key=True, index=True)
-    tenant_id = Column(String(64), nullable=False, index=True, default="global")
+    tenant_id = Column(String(64), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     title = Column(String(255), nullable=False)
     content = Column(Text, nullable=False)
