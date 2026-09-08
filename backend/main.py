@@ -1,4 +1,6 @@
 import os
+import threading
+import logging
 from datetime import datetime
 from typing import Dict, Any, Optional
 
@@ -16,6 +18,8 @@ from app.api.routes.upload import router as upload_router
 from app.api.routes.chitra import router as chitra_router
 from app.api.routes.manush import router as manush_router
 from agents.graph import brahma_app
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="BRAHMA COS Backend", version="0.1.0")
 
@@ -67,6 +71,80 @@ def health(db: Session = Depends(get_db)):
 def get_all_tasks(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     tasks = db.query(Task).filter(Task.user_id == current_user.id).all()
     return tasks
+
+
+def _trigger_f14_pattern_extraction_worker(tenant_id: str, user_id: int, current_task_id: int):
+    """
+    Non-blocking background worker for F14 pattern extraction upon task completion.
+    Queries recent completed tasks for this tenant/user.
+    If >= 3 completed episodes exist, extracts and persists a candidate pattern.
+    Fail-open: any exception is logged and suppressed so task execution is never impacted.
+    """
+    try:
+        from app.db.database import SessionLocal
+        from app.models.task import Task
+        from app.core.learning.service import LearningService
+        from app.core.learning.models import PatternType
+        from app.core.learning.stewardship import F15EvolutionarySteward
+
+        with SessionLocal() as db:
+            completed_tasks = (
+                db.query(Task)
+                .filter(Task.user_id == user_id, Task.status == "COMPLETED")
+                .order_by(Task.id.desc())
+                .limit(10)
+                .all()
+            )
+
+            if len(completed_tasks) < 3:
+                return
+
+            episodes = []
+            for t in completed_tasks:
+                ep_tool = "generic_executor"
+                duration_ms = 100.0
+                if t.execution_result and isinstance(t.execution_result, dict):
+                    ep_tool = t.execution_result.get("tool", t.execution_result.get("tool_name", "generic_executor"))
+                    duration_ms = float(t.execution_result.get("duration_ms", 100.0))
+                elif t.plan and isinstance(t.plan, dict):
+                    ep_tool = t.plan.get("tool", "generic_executor")
+
+                episodes.append({
+                    "task_id": t.id,
+                    "event_id": f"evt_task_{t.id}",
+                    "status": "SUCCESS",
+                    "duration_ms": duration_ms,
+                    "tool": ep_tool,
+                    "tenant_id": tenant_id
+                })
+
+            candidate = LearningService.extract_pattern(
+                tenant_id=tenant_id,
+                episodes=episodes,
+                pattern_type=PatternType.PLAN_OPTIMIZATION,
+                name=f"AutoPattern_{tenant_id}",
+                description=f"Automatically extracted from {len(episodes)} completed tasks."
+            )
+
+            F15EvolutionarySteward._persist_candidate(candidate=candidate, db_session=db)
+            logger.info(f"F14 auto-extraction successfully created candidate pattern '{candidate.pattern_id}' for tenant '{tenant_id}'")
+    except Exception as e:
+        logger.warning(
+            f"F14 background pattern extraction failed for tenant '{tenant_id}' (fail-open): {e}",
+            exc_info=True
+        )
+
+
+def _trigger_f14_pattern_extraction_async(tenant_id: str, user_id: int, current_task_id: int):
+    """Dispatches F14 pattern extraction to a background thread to ensure zero latency impact on task completion."""
+    thread = threading.Thread(
+        target=_trigger_f14_pattern_extraction_worker,
+        args=(tenant_id, user_id, current_task_id),
+        daemon=True,
+        name=f"F14-Extractor-{tenant_id}-{current_task_id}"
+    )
+    thread.start()
+
 
 def run_agent_workflow(task_id: int, intent: str, db_session: Optional[Session] = None):
     should_close = False
@@ -125,6 +203,18 @@ def run_agent_workflow(task_id: int, intent: str, db_session: Optional[Session] 
             task.risk_level = task.risk_report.get("risk_level", task.risk_level)
             
         db.commit()
+
+        # F14 Learning Trigger: automatically initiate pattern extraction if task completed
+        if task.status == "COMPLETED":
+            try:
+                _trigger_f14_pattern_extraction_async(
+                    tenant_id=f"tenant_{task.user_id}",
+                    user_id=task.user_id,
+                    current_task_id=task.id
+                )
+            except Exception as e:
+                # Fail-open: learning trigger must never impact task completion
+                logger.warning(f"Failed to dispatch F14 pattern extraction trigger (fail-open): {e}")
     except Exception as e:
         db.rollback()
         task = db.query(Task).filter(Task.id == task_id).first()
