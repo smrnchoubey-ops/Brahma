@@ -8,9 +8,12 @@ Failure/Rollback paths: REJECTED | ROLLED_BACK
 Enforces constitutional validation (MARYADA), LE thresholds, regression assertions,
 and canonical CHITRA auditing.
 """
+import logging
 from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from app.core.learning.models import (
     LearningCandidate,
@@ -292,7 +295,11 @@ class F15EvolutionarySteward:
                 from app.db.database import SessionLocal
                 with SessionLocal() as db:
                     return _upsert_record(db)
-            except Exception:
+            except Exception as e:
+                logger.error(
+                    f"Failed to persist learning candidate '{candidate.pattern_id}' (tenant='{candidate.tenant_id}', status='{candidate.status.value}') to PostgreSQL: {e}",
+                    exc_info=True
+                )
                 return None
 
     @classmethod
