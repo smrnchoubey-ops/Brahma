@@ -63,10 +63,23 @@ class DisasterRecoveryEngine:
         """
         drill_id = f"dr_drill_{uuid.uuid4().hex[:8]}"
         
+        # Resolve tenant_id / user_id
+        target_user_id = user_id
+        if target_user_id is None and tenant_id is not None:
+            if isinstance(tenant_id, str) and tenant_id.startswith("tenant_"):
+                try:
+                    target_user_id = int(tenant_id.replace("tenant_", ""))
+                except ValueError:
+                    pass
+            elif isinstance(tenant_id, int):
+                target_user_id = tenant_id
+            elif isinstance(tenant_id, str) and tenant_id.isdigit():
+                target_user_id = int(tenant_id)
+
         # 1. Query interrupted tasks
         query = db.query(Task).filter(Task.status == "RUNNING")
-        if user_id is not None:
-            query = query.filter(Task.user_id == user_id)
+        if target_user_id is not None:
+            query = query.filter(Task.user_id == target_user_id)
         
         interrupted_tasks = query.order_by(Task.id.asc()).all()
         interrupted_count = len(interrupted_tasks)

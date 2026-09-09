@@ -1,10 +1,14 @@
 """
 GAP #14 TEST SUITE: Disaster Recovery Drill for BRAHMA COS
-Strictly conforms to Whitesheet §14 (Failure Taxonomy, Idempotency, Recovery)
+Strictly conforms to Whitesheet §14 (Failure Taxonomy, Idempotency, Recovery),
+Appendix H (FH-4), Appendix I (RB-1 Cold Start, RB-2 Failure Recovery),
 and Phase 6 Exit Criterion: "Full disaster-recovery drill passed."
 """
 import pytest
 import uuid
+from fastapi.testclient import TestClient
+
+from main import app
 from app.db.database import SessionLocal
 from app.models.user import User
 from app.models.task import Task
@@ -201,8 +205,8 @@ def test_dr_enforces_tenant_isolation(setup_users):
         db.refresh(task_a)
         db.refresh(task_b)
 
-        # Run DR specifically for Tenant A
-        report_a = DisasterRecoveryEngine.execute_recovery_drill(db, user_id=user_a_id)
+        # Run DR specifically for Tenant A (using tenant_id string format)
+        report_a = DisasterRecoveryEngine.execute_recovery_drill(db, tenant_id=f"tenant_{user_a_id}")
         
         db.refresh(task_a)
         db.refresh(task_b)
@@ -216,7 +220,35 @@ def test_dr_enforces_tenant_isolation(setup_users):
         assert task_b.status == "RUNNING"
 
         # Now run DR for Tenant B
-        report_b = DisasterRecoveryEngine.execute_recovery_drill(db, user_id=user_b_id)
+        report_b = DisasterRecoveryEngine.execute_recovery_drill(db, tenant_id=f"tenant_{user_b_id}")
         db.refresh(task_b)
         assert task_b.id in report_b.reconciled_task_ids
         assert task_b.status == "RECOVERED"
+
+
+def test_automatic_startup_hook_reconciles_interrupted_tasks(setup_users):
+    """
+    Tests that FastAPI app startup automatically triggers Disaster Recovery reconciliation.
+    """
+    user_a_id, _ = setup_users
+    with SessionLocal() as db:
+        task = Task(
+            user_id=user_a_id,
+            title="Startup Hook Recovery Task",
+            prompt="Interrupted before cold start",
+            status="RUNNING",
+            mode="AUTONOMOUS"
+        )
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+
+    # Initialize TestClient to trigger FastAPI startup event handlers
+    with TestClient(app) as client:
+        res = client.get("/health")
+        assert res.status_code == 200
+
+    # Task should now be automatically reconciled on startup
+    with SessionLocal() as db:
+        reconciled_task = db.query(Task).filter(Task.id == task.id).first()
+        assert reconciled_task.status in ["RECOVERED", "COMPLETED"]

@@ -49,6 +49,27 @@ app.include_router(chitra_router)
 app.include_router(manush_router)
 
 
+@app.on_event("startup")
+def on_startup_disaster_recovery():
+    """
+    Automatic Cold-Start / Disaster Recovery reconciliation on service startup.
+    Conforms to Whitesheet §14 & Appendix I (RB-1 Cold Start, RB-2 Failure Recovery).
+    Reconciles orphaned RUNNING tasks left in-flight by unexpected termination/crash.
+    """
+    try:
+        from app.db.database import SessionLocal
+        from app.core.disaster_recovery import DisasterRecoveryEngine
+        with SessionLocal() as db:
+            report = DisasterRecoveryEngine.execute_recovery_drill(db=db)
+            if report.tasks_reconciled > 0:
+                logger.info(
+                    f"[COLD-START DR] Reconciled {report.tasks_reconciled} orphaned task(s) "
+                    f"(drill_id={report.drill_id}, duplicates_prevented={report.duplicate_executions_prevented})"
+                )
+    except Exception as e:
+        logger.error(f"[COLD-START DR] Failed to execute cold-start disaster recovery: {e}")
+
+
 @app.get("/")
 def read_root():
     return {"status": "ok", "message": "BRAHMA COS API is running"}
