@@ -38,9 +38,11 @@ def rachit_node(state: AgentState) -> Dict[str, Any]:
     # 3. Log comprehensive, safe audit trail
     if task_id:
         from app.services.audit_service import log_audit_event
+        mode = state.get("mode", "REACTIVE")
         audit_payload = {
             "action": exec_result.action_name,
             "status": exec_result.status,
+            "mode": mode,
             "executed_at": exec_result.executed_at
         }
         if exec_result.output is not None:

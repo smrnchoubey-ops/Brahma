@@ -18,6 +18,12 @@ class Task(Base):
         default="PENDING"
     )
 
+    mode = Column(
+        String(50),
+        nullable=False,
+        default="REACTIVE"
+    )
+
     risk_level = Column(
         String(20),
         default="LOW"

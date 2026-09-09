@@ -44,8 +44,9 @@ def karma_node(state: AgentState) -> Dict[str, Any]:
     
     # Audit Log
     task_id = state.get("task_id")
+    mode = state.get("mode", "REACTIVE")
     if task_id:
-        log_audit_event(task_id, "KARMA", "Ingest Intent", "SUCCESS", {"intent": intent})
+        log_audit_event(task_id, "KARMA", "Ingest Intent", "SUCCESS", {"intent": intent, "mode": mode})
 
     return {
         "current_agent": "KARMA",

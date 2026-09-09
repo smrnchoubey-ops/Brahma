@@ -33,6 +33,7 @@ class AgentState(TypedDict):
     
     # Input
     intent: str
+    mode: Optional[str]
     memory_context: Optional[str]
     knowledge_context: Optional[str]
     

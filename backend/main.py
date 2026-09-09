@@ -13,6 +13,7 @@ from sqlalchemy import text
 from app.db.database import get_db, SessionLocal
 from app.models.task import Task
 from app.models.audit import Audit
+from app.core.runtime_mode import OperationalMode
 from app.api.auth import router as auth_router, get_current_user
 from app.api.routes.upload import router as upload_router
 from app.api.routes.chitra import router as chitra_router
@@ -40,6 +41,7 @@ app.add_middleware(
 class TaskRequest(BaseModel):
     title: str
     prompt: str
+    mode: Optional[str] = "REACTIVE"
 
 app.include_router(auth_router, prefix="/auth", tags=["auth"])
 app.include_router(upload_router)
@@ -146,7 +148,7 @@ def _trigger_f14_pattern_extraction_async(tenant_id: str, user_id: int, current_
     thread.start()
 
 
-def run_agent_workflow(task_id: int, intent: str, db_session: Optional[Session] = None):
+def run_agent_workflow(task_id: int, intent: str, mode: Optional[str] = None, db_session: Optional[Session] = None):
     should_close = False
     if db_session is None:
         db = SessionLocal()
@@ -161,6 +163,32 @@ def run_agent_workflow(task_id: int, intent: str, db_session: Optional[Session] 
             
         task.status = "RUNNING"
         db.commit()
+
+        # Operational Mode validation & resolution (Whitesheet §3.3)
+        raw_mode = mode or getattr(task, "mode", None) or "REACTIVE"
+        try:
+            op_mode = OperationalMode.validate_mode(raw_mode)
+        except ValueError as ve:
+            task.status = "FAILED"
+            task.execution_result = {"error": str(ve), "message": "Invalid operational mode"}
+            db.commit()
+            return
+
+        # Whitesheet §3.3: Mode selection is itself a decision logged in CHITRA with justification
+        from app.services.audit_service import log_audit_event
+        mode_meta = OperationalMode.get_mode_metadata(op_mode)
+        log_audit_event(
+            task_id,
+            "RUNTIME",
+            "Mode Selection",
+            "SELECTED",
+            {
+                "mode": op_mode.value,
+                "is_autonomous": mode_meta["is_autonomous"],
+                "retention_tier": mode_meta["retention_tier"],
+                "justification": f"Selected {op_mode.value} runtime mode for task: {mode_meta['description']}"
+            }
+        )
         
         initial_state = {
             "task_id": task_id,
@@ -169,6 +197,7 @@ def run_agent_workflow(task_id: int, intent: str, db_session: Optional[Session] 
             "session_id": f"ses_{task_id}",
             "trace_id": f"trace_{task_id}",
             "intent": intent,
+            "mode": op_mode.value,
             "errors": []
         }
         
@@ -235,6 +264,12 @@ def run_agent_workflow(task_id: int, intent: str, db_session: Optional[Session] 
 def create_task(request: TaskRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     from datetime import datetime, timedelta
     try:
+        # Validate operational mode fail-safe (Whitesheet §3.3)
+        try:
+            validated_mode = OperationalMode.validate_mode(request.mode)
+        except ValueError as ve:
+            raise HTTPException(status_code=400, detail=str(ve))
+
         # Idempotency check: duplicate prompt in last 5 minutes
         five_mins_ago = datetime.utcnow() - timedelta(minutes=5)
         duplicate = db.query(Task).filter(
@@ -249,6 +284,7 @@ def create_task(request: TaskRequest, background_tasks: BackgroundTasks, db: Ses
         new_task = Task(
             title=request.title or "Untitled Task",
             prompt=request.prompt,
+            mode=validated_mode.value,
             status="PENDING",
             risk_level="UNKNOWN",
             user_id=current_user.id
@@ -257,12 +293,13 @@ def create_task(request: TaskRequest, background_tasks: BackgroundTasks, db: Ses
         db.commit()
         db.refresh(new_task)
         
-        background_tasks.add_task(run_agent_workflow, new_task.id, request.prompt)
+        background_tasks.add_task(run_agent_workflow, new_task.id, request.prompt, validated_mode.value)
         
         return {
             "status": "success",
             "task_id": new_task.id,
-            "message": f"Task '{request.title}' received and processing started."
+            "mode": validated_mode.value,
+            "message": f"Task '{request.title}' received in {validated_mode.value} mode and processing started."
         }
     except HTTPException:
         raise
