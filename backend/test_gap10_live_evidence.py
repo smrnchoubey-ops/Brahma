@@ -43,7 +43,11 @@ def main():
     print("Whitesheet Authority: §3.3 Operational Modes & Phase 6 Autonomous Operations")
     print("==================================================================")
 
-    # 1. Setup isolated test users in PostgreSQL
+    # 0. STRICT DATABASE DIALECT VERIFICATION (No SQLite)
+    print(f"[*] Database Engine Dialect: {engine.dialect.name}")
+    print(f"[*] Database Host & URL:     {engine.url}")
+    assert engine.dialect.name == "postgresql", f"FATAL: Database dialect must be 'postgresql', got '{engine.dialect.name}'"
+    print("  [PASS] Confirmed: Live PostgreSQL engine active.")
     with SessionLocal() as db:
         user_a = db.query(User).filter(User.username == "user_gap10_live_a").first()
         if not user_a:

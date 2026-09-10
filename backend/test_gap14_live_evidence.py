@@ -18,7 +18,7 @@ from sqlalchemy import text
 from fastapi.testclient import TestClient
 
 from main import app
-from app.db.database import SessionLocal
+from app.db.database import SessionLocal, engine
 from app.models.user import User
 from app.models.task import Task
 from app.models.chitra import ChitraEvent
@@ -34,6 +34,12 @@ def run_forensic_dr_drill():
     print(f"Executed at: {datetime.now(timezone.utc).isoformat()}")
     print("Whitesheet Reference: §14 Recovery, App H (FH-4), App I (RB-1/RB-2), §23 Phase 6")
     print("=" * 80)
+
+    # 0. STRICT DATABASE DIALECT VERIFICATION (No SQLite)
+    print(f"[*] Database Engine Dialect: {engine.dialect.name}")
+    print(f"[*] Database Host & URL:     {engine.url}")
+    assert engine.dialect.name == "postgresql", f"FATAL: Database dialect must be 'postgresql', got '{engine.dialect.name}'"
+    print("  [PASS] Confirmed: Live PostgreSQL engine active.")
 
     with SessionLocal() as db:
         # Step 0: Ensure multi-tenant identities

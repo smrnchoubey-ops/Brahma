@@ -234,6 +234,8 @@ def run_agent_workflow(task_id: int, intent: str, mode: Optional[str] = None, db
         status = final_state.get("status", "")
         if "FAILED" in status or final_state.get("errors"):
             task.status = "FAILED"
+        elif status == "HUMAN_REVIEW":
+            task.status = "HUMAN_REVIEW"
         elif status == "MARYADA_BLOCKED":
             verdict = final_state.get("policy_verdict", {})
             if verdict.get("requires_human"):
@@ -253,6 +255,27 @@ def run_agent_workflow(task_id: int, intent: str, mode: Optional[str] = None, db
             task.risk_level = task.risk_report.get("risk_level", task.risk_level)
             
         db.commit()
+
+        # Periodic Oversight Cadence Tracking (Whitesheet §12.5 & CP-203)
+        # Emits periodic batch review checkpoint in CHITRA when N actions or T minutes threshold reached
+        if op_mode == OperationalMode.AUTONOMOUS and task.status == "COMPLETED":
+            try:
+                from app.core.manush.cadence import oversight_cadence_tracker
+                action_name = "task_execution"
+                if isinstance(task.execution_result, dict):
+                    action_name = task.execution_result.get("tool") or task.execution_result.get("action") or "task_execution"
+                oversight_cadence_tracker.record_action_and_evaluate(
+                    task_id=task.id,
+                    user_id=task.user_id,
+                    mode=op_mode.value,
+                    action_name=action_name,
+                    action_payload=task.execution_result if isinstance(task.execution_result, dict) else None,
+                    db_session=db,
+                    session_id=f"ses_{task.id}"
+                )
+            except Exception as ce:
+                # Fail-open: periodic cadence evaluation error must never break task execution
+                logger.warning(f"Periodic oversight cadence tracking error (fail-open): {ce}")
 
         # F14 Learning Trigger: automatically initiate pattern extraction if task completed
         if task.status == "COMPLETED":
@@ -280,6 +303,47 @@ def run_agent_workflow(task_id: int, intent: str, mode: Optional[str] = None, db
     finally:
         if should_close:
             db.close()
+
+
+def resume_autonomous_workflow(
+    task_id: int,
+    db_session: Optional[Session] = None,
+    reset_cadence: bool = True,
+    amended_intent: Optional[str] = None
+) -> Optional[Task]:
+    """
+    Resumes an autonomous workflow after human oversight resolution (APPROVE / AMEND).
+    Conforms to Whitesheet §12.5 & §12.7.
+    """
+    from datetime import datetime, timezone
+    should_close = False
+    if db_session is None:
+        db = SessionLocal()
+        should_close = True
+    else:
+        db = db_session
+
+    try:
+        task = db.query(Task).filter(Task.id == task_id).first()
+        if not task:
+            return None
+
+        # Reset cadence action count & interval start for next oversight window
+        prev_res = task.execution_result if isinstance(task.execution_result, dict) else {}
+        if reset_cadence:
+            prev_res["action_count"] = 0
+            prev_res["cadence_interval_start"] = datetime.now(timezone.utc).isoformat()
+            task.execution_result = prev_res
+            db.commit()
+
+        intent_to_run = amended_intent or task.prompt or "Resume autonomous execution"
+        run_agent_workflow(task_id=task.id, intent=intent_to_run, mode="AUTONOMOUS", db_session=db)
+        db.refresh(task)
+        return task
+    finally:
+        if should_close:
+            db.close()
+
 
 @app.post("/tasks/")
 def create_task(request: TaskRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
