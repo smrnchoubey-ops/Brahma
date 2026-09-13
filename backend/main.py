@@ -379,6 +379,28 @@ def get_metrics(db: Session = Depends(get_db), current_user = Depends(get_curren
         "system_health": "Healthy"
     }
 
+@app.get("/api/metrics/intervention-rate")
+def get_intervention_rate(
+    user_id: Optional[int] = None,
+    tenant_id: Optional[str] = None,
+    window_hours: Optional[float] = 24.0,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """
+    Whitesheet §23 Phase 6 Exit Criterion Telemetry:
+    Human intervention rate < 1 per 100 task-hours for low-risk classes.
+    """
+    from app.services.intervention_telemetry import calculate_human_intervention_rate
+    effective_user_id = user_id if user_id is not None else current_user.id
+    effective_tenant_id = tenant_id if tenant_id is not None else f"tenant_{effective_user_id}"
+    return calculate_human_intervention_rate(
+        db=db,
+        user_id=effective_user_id,
+        tenant_id=effective_tenant_id,
+        window_hours=window_hours
+    )
+
 @app.get("/api/agents")
 def get_agents(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     return [
