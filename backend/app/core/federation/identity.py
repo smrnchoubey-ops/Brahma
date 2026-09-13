@@ -62,7 +62,8 @@ class NodeIdentityManager:
         name: Optional[str] = None,
         trust_tier: TrustTier = TrustTier.UNTRUSTED,
         endpoint: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        tenant_id: Optional[str] = None
     ) -> Tuple[NodeIdentity, SigningKey]:
         """
         Generates a unique node_id, creates an ECDSA keypair, and constructs a public NodeIdentity.
@@ -75,6 +76,7 @@ class NodeIdentityManager:
         identity = NodeIdentity(
             node_id=node_id,
             public_key=public_key_hex,
+            tenant_id=tenant_id,
             trust_tier=trust_tier,
             status=NodeStatus.ACTIVE,
             name=name or f"BrahmaNode_{node_id[:8]}",

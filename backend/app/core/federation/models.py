@@ -47,6 +47,7 @@ class NodeIdentity(BaseModel):
     """
     node_id: str = Field(..., min_length=4, description="Unique, immutable identifier of the node.")
     public_key: str = Field(..., min_length=32, description="Hex-encoded ECDSA public key.")
+    tenant_id: Optional[str] = Field(default=None, description="Tenant scope for multi-tenant isolation.")
     trust_tier: TrustTier = Field(default=TrustTier.UNTRUSTED)
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     status: NodeStatus = Field(default=NodeStatus.ACTIVE)
