@@ -260,3 +260,150 @@ def test_6_api_endpoint_mounted_and_callable(setup_users):
     assert "meets_exit_criterion" in data
     assert "interventions_breakdown" in data
     assert data["user_filter"] == user_a_id
+
+
+def test_7_genuine_execution_duration_captured_in_runtime(setup_users):
+    """Verifies genuine execution duration is measured and persisted in task.execution_result."""
+    from main import run_agent_workflow
+    user_a_id, _ = setup_users
+
+    with SessionLocal() as db:
+        task = Task(
+            user_id=user_a_id,
+            title="Timing Test Task",
+            prompt="Simple greeting test",
+            status="PENDING",
+            mode="AUTONOMOUS",
+            risk_level="LOW"
+        )
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+        task_id = task.id
+
+        run_agent_workflow(task_id, task.prompt, mode="AUTONOMOUS", db_session=db)
+
+        db.refresh(task)
+        assert task.status in ["COMPLETED", "BLOCKED", "HUMAN_REVIEW"]
+        if task.status == "COMPLETED":
+            assert isinstance(task.execution_result, dict)
+            assert "duration_seconds" in task.execution_result
+            assert "duration_ms" in task.execution_result
+            assert "execution_start" in task.execution_result
+            assert "execution_end" in task.execution_result
+            assert task.execution_result["duration_seconds"] >= 0.0
+            dur_hours = get_task_duration_hours(task)
+            assert dur_hours >= 0.0
+
+
+def test_8_duration_measured_around_actual_execution_not_created_at_delta(setup_users):
+    """Verifies duration uses ONLY genuine execution timing, NOT created_at/updated_at delta."""
+    user_a_id, _ = setup_users
+
+    with SessionLocal() as db:
+        now = datetime.now(timezone.utc)
+        # Task created 24 hours ago, updated now (delta = 24h), but actual execution was 3.6 seconds (0.001 hours)
+        t = Task(
+            user_id=user_a_id,
+            title="Duration Delta Test",
+            prompt="Test delta",
+            status="COMPLETED",
+            mode="AUTONOMOUS",
+            risk_level="LOW",
+            execution_result={"duration_seconds": 3.6, "duration_ms": 3600.0},
+            created_at=now - timedelta(hours=24),
+            updated_at=now
+        )
+        db.add(t)
+        db.commit()
+
+        dur_hours = get_task_duration_hours(t)
+        # Must be 3.6 / 3600 = 0.001 hours, NOT 24.0 hours
+        assert abs(dur_hours - 0.001) < 1e-6
+
+
+def test_9_human_review_and_blocked_waiting_time_not_counted(setup_users):
+    """Verifies waiting time for HUMAN_REVIEW and BLOCKED tasks without execution is NOT counted."""
+    user_a_id, _ = setup_users
+
+    with SessionLocal() as db:
+        now = datetime.now(timezone.utc)
+        # 1. Blocked task (no execution occurred)
+        t_blocked = Task(
+            user_id=user_a_id,
+            title="Blocked Task No Exec",
+            prompt="Blocked intent",
+            status="BLOCKED",
+            mode="AUTONOMOUS",
+            risk_level="LOW",
+            execution_result={"status": "BLOCKED", "reason": "MARYADA policy rejected"},
+            created_at=now - timedelta(hours=5),
+            updated_at=now
+        )
+        # 2. Human review task (waiting in queue for 10 hours)
+        t_review = Task(
+            user_id=user_a_id,
+            title="Human Review Task Waiting",
+            prompt="Requires human oversight",
+            status="HUMAN_REVIEW",
+            mode="AUTONOMOUS",
+            risk_level="LOW",
+            execution_result=None,
+            created_at=now - timedelta(hours=10),
+            updated_at=now
+        )
+        db.add_all([t_blocked, t_review])
+        db.commit()
+
+        assert get_task_duration_hours(t_blocked) == 0.0
+        assert get_task_duration_hours(t_review) == 0.0
+
+
+def test_10_security_user_a_cannot_query_user_b_telemetry(setup_users):
+    """Verifies User A receives 403 Forbidden when attempting to query User B's user_id."""
+    user_a_id, user_b_id = setup_users
+    token_a = create_access_token(data={"sub": "user_gap13_tenant_a", "id": user_a_id})
+    headers_a = {"Authorization": f"Bearer {token_a}"}
+
+    client = TestClient(app)
+    # User A tries to pass User B's ID in user_id query parameter
+    resp = client.get(f"/api/metrics/intervention-rate?user_id={user_b_id}", headers=headers_a)
+    assert resp.status_code == 403, f"Expected 403 Forbidden, got {resp.status_code}: {resp.text}"
+    assert "Access denied" in resp.json()["detail"]
+
+
+def test_11_security_user_a_cannot_query_user_b_tenant_telemetry(setup_users):
+    """Verifies User A receives 403 Forbidden when attempting to query User B's tenant_id."""
+    user_a_id, user_b_id = setup_users
+    token_a = create_access_token(data={"sub": "user_gap13_tenant_a", "id": user_a_id})
+    headers_a = {"Authorization": f"Bearer {token_a}"}
+
+    client = TestClient(app)
+    # User A tries to pass User B's tenant_id in tenant_id query parameter
+    resp = client.get(f"/api/metrics/intervention-rate?tenant_id=tenant_{user_b_id}", headers=headers_a)
+    assert resp.status_code == 403, f"Expected 403 Forbidden, got {resp.status_code}: {resp.text}"
+    assert "Access denied" in resp.json()["detail"]
+
+
+def test_12_own_user_telemetry_authorized(setup_users):
+    """Verifies User A can query their own telemetry with explicit matching filters or defaults."""
+    user_a_id, _ = setup_users
+    token_a = create_access_token(data={"sub": "user_gap13_tenant_a", "id": user_a_id})
+    headers_a = {"Authorization": f"Bearer {token_a}"}
+
+    client = TestClient(app)
+    # 1. Default query (no params)
+    resp_default = client.get("/api/metrics/intervention-rate", headers=headers_a)
+    assert resp_default.status_code == 200
+    assert resp_default.json()["user_filter"] == user_a_id
+    assert resp_default.json()["tenant_filter"] == f"tenant_{user_a_id}"
+
+    # 2. Explicit matching own params
+    resp_explicit = client.get(
+        f"/api/metrics/intervention-rate?user_id={user_a_id}&tenant_id=tenant_{user_a_id}",
+        headers=headers_a
+    )
+    assert resp_explicit.status_code == 200
+    assert resp_explicit.json()["user_filter"] == user_a_id
+    assert resp_explicit.json()["tenant_filter"] == f"tenant_{user_a_id}"
+

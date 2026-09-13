@@ -17,9 +17,14 @@ from app.models.chitra import ChitraEvent
 
 def get_task_duration_hours(task: Task) -> float:
     """
-    Computes legitimate task execution duration in hours using existing schema fields.
-    1. First checks for explicit execution duration in task.execution_result.
-    2. Falls back to timestamp delta (updated_at - created_at).
+    Computes genuine task execution duration in hours using actual recorded execution timing.
+    Uses only real runtime execution measurements stored in task.execution_result:
+    - duration_seconds / duration_ms recorded around genuine workflow execution
+    - step-level started_at / completed_at execution deltas
+
+    NOTE: Does NOT use (updated_at - created_at) fallback, as that includes queue latency,
+    human review wait time, and database row lifetime. If execution did not occur or was not
+    timed, returns 0.0 task-hours.
     """
     if isinstance(task.execution_result, dict):
         if "duration_seconds" in task.execution_result and task.execution_result["duration_seconds"] is not None:
@@ -33,9 +38,21 @@ def get_task_duration_hours(task: Task) -> float:
             except (ValueError, TypeError):
                 pass
 
-    if task.created_at and task.updated_at:
-        delta_sec = (task.updated_at - task.created_at).total_seconds()
-        return max(0.0, delta_sec) / 3600.0
+        # Check step-level started_at / completed_at if present in execution report
+        if "report" in task.execution_result and isinstance(task.execution_result["report"], dict):
+            step_results = task.execution_result["report"].get("step_results", {})
+            if isinstance(step_results, dict):
+                total_step_sec = 0.0
+                for step in step_results.values():
+                    if isinstance(step, dict) and step.get("started_at") and step.get("completed_at"):
+                        try:
+                            s_start = datetime.fromisoformat(step["started_at"])
+                            s_end = datetime.fromisoformat(step["completed_at"])
+                            total_step_sec += max(0.0, (s_end - s_start).total_seconds())
+                        except Exception:
+                            pass
+                if total_step_sec > 0:
+                    return total_step_sec / 3600.0
 
     return 0.0
 
@@ -52,14 +69,14 @@ def calculate_human_intervention_rate(
     Computes human intervention telemetry for Whitesheet §23 Phase 6.
 
     Numerator (Interventions):
-        Count of LOW-risk tasks in the window that required human intervention:
+        Count of DISTINCT LOW-risk tasks in the window that required human intervention:
         - MARYADA blocked task (status IN ('BLOCKED', 'MARYADA_BLOCKED') or policy_verdict.approved == False)
         - MARYADA escalated to human review (status == 'HUMAN_REVIEW' or policy_verdict.requires_human == True)
         - Explicit MANUSH oversight decision (CHITRA event with faculty='MANUSH' or status in ('TERMINATED', 'AMENDED'))
         * De-duplicated: each task with >= 1 intervention signal is counted exactly once.
 
     Denominator (Task-Hours):
-        Total task execution time in hours for the same LOW-risk task population.
+        Total genuine recorded execution time in hours for the same LOW-risk task population.
 
     Rate:
         interventions / (task_hours / 100) = (interventions * 100.0) / task_hours
@@ -152,17 +169,17 @@ def calculate_human_intervention_rate(
         is_escalated = False
         has_manush_decision = False
 
-        # Signal 1: Blocked
-        if t.status in ["BLOCKED", "MARYADA_BLOCKED"]:
-            is_blocked = True
-        elif isinstance(t.policy_verdict, dict) and t.policy_verdict.get("approved") is False:
-            is_blocked = True
-
-        # Signal 2: Escalated to HUMAN_REVIEW
+        # Signal 1: Escalated to HUMAN_REVIEW
         if t.status == "HUMAN_REVIEW":
             is_escalated = True
         elif isinstance(t.policy_verdict, dict) and t.policy_verdict.get("requires_human") is True:
             is_escalated = True
+
+        # Signal 2: Blocked (excluding pure review escalation)
+        if t.status in ["BLOCKED", "MARYADA_BLOCKED"]:
+            is_blocked = True
+        elif isinstance(t.policy_verdict, dict) and t.policy_verdict.get("approved") is False and not is_escalated:
+            is_blocked = True
 
         # Signal 3: Explicit MANUSH decision / terminal state
         if t.id in manush_task_ids or t.status in ["TERMINATED", "AMENDED"]:
@@ -184,7 +201,7 @@ def calculate_human_intervention_rate(
     if total_task_hours > 0.0:
         rate = round((total_interventions * 100.0) / total_task_hours, 4)
     else:
-        # If total duration is 0 (instantaneous execution), report 0.0 or baseline
+        # If total recorded duration is 0, report 0.0
         rate = 0.0
 
     meets_criterion = rate < 1.0

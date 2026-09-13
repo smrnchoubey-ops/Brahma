@@ -1,10 +1,11 @@
 import os
+import time
 import threading
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 
-from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -222,14 +223,23 @@ def run_agent_workflow(task_id: int, intent: str, mode: Optional[str] = None, db
             "errors": []
         }
         
+        # Record genuine execution start immediately before execution/workflow begins
+        exec_start_dt = datetime.now(timezone.utc)
+        exec_t0 = time.perf_counter()
+
         final_state = brahma_app.invoke(initial_state)
-        
+
+        # Record genuine execution end immediately after execution/workflow finishes
+        exec_t1 = time.perf_counter()
+        exec_end_dt = datetime.now(timezone.utc)
+        duration_sec = max(0.0, exec_t1 - exec_t0)
+        duration_ms = round(duration_sec * 1000.0, 3)
+
         # Update Task based on final state
         task.plan = final_state.get("plan")
         task.risk_report = final_state.get("risk_report")
         task.policy_verdict = final_state.get("policy_verdict")
-        task.execution_result = final_state.get("execution_result")
-        
+
         # Set final status
         status = final_state.get("status", "")
         if "FAILED" in status or final_state.get("errors"):
@@ -250,10 +260,39 @@ def run_agent_workflow(task_id: int, intent: str, mode: Optional[str] = None, db
             task.status = "COMPLETED"
         else:
             task.status = "UNKNOWN"
-            
+
         if task.risk_report and isinstance(task.risk_report, dict):
             task.risk_level = task.risk_report.get("risk_level", task.risk_level)
-            
+
+        # Persist execution duration ONLY when genuine execution occurred (COMPLETED tasks)
+        # Blocked tasks and human review tasks do not receive fabricated execution duration
+        raw_exec_result = final_state.get("execution_result")
+        if task.status == "COMPLETED" or status in ["RACHIT_EXECUTED", "RACHIT_STUBBED"]:
+            if isinstance(raw_exec_result, dict):
+                raw_exec_result["duration_seconds"] = round(duration_sec, 6)
+                raw_exec_result["duration_ms"] = duration_ms
+                raw_exec_result["execution_start"] = exec_start_dt.isoformat()
+                raw_exec_result["execution_end"] = exec_end_dt.isoformat()
+                task.execution_result = raw_exec_result
+            elif raw_exec_result is not None:
+                task.execution_result = {
+                    "result": raw_exec_result,
+                    "duration_seconds": round(duration_sec, 6),
+                    "duration_ms": duration_ms,
+                    "execution_start": exec_start_dt.isoformat(),
+                    "execution_end": exec_end_dt.isoformat()
+                }
+            else:
+                task.execution_result = {
+                    "status": "COMPLETED",
+                    "duration_seconds": round(duration_sec, 6),
+                    "duration_ms": duration_ms,
+                    "execution_start": exec_start_dt.isoformat(),
+                    "execution_end": exec_end_dt.isoformat()
+                }
+        else:
+            task.execution_result = raw_exec_result
+
         db.commit()
 
         # Periodic Oversight Cadence Tracking (Whitesheet §12.5 & CP-203)
@@ -391,13 +430,23 @@ def get_intervention_rate(
     Whitesheet §23 Phase 6 Exit Criterion Telemetry:
     Human intervention rate < 1 per 100 task-hours for low-risk classes.
     """
+    if user_id is not None and user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Cannot query metrics for another user."
+        )
+    authorized_tenant = f"tenant_{current_user.id}"
+    if tenant_id is not None and tenant_id != authorized_tenant:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Cannot query metrics for another tenant."
+        )
+
     from app.services.intervention_telemetry import calculate_human_intervention_rate
-    effective_user_id = user_id if user_id is not None else current_user.id
-    effective_tenant_id = tenant_id if tenant_id is not None else f"tenant_{effective_user_id}"
     return calculate_human_intervention_rate(
         db=db,
-        user_id=effective_user_id,
-        tenant_id=effective_tenant_id,
+        user_id=current_user.id,
+        tenant_id=authorized_tenant,
         window_hours=window_hours
     )
 
