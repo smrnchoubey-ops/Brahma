@@ -305,46 +305,6 @@ def run_agent_workflow(task_id: int, intent: str, mode: Optional[str] = None, db
             db.close()
 
 
-def resume_autonomous_workflow(
-    task_id: int,
-    db_session: Optional[Session] = None,
-    reset_cadence: bool = True,
-    amended_intent: Optional[str] = None
-) -> Optional[Task]:
-    """
-    Resumes an autonomous workflow after human oversight resolution (APPROVE / AMEND).
-    Conforms to Whitesheet §12.5 & §12.7.
-    """
-    from datetime import datetime, timezone
-    should_close = False
-    if db_session is None:
-        db = SessionLocal()
-        should_close = True
-    else:
-        db = db_session
-
-    try:
-        task = db.query(Task).filter(Task.id == task_id).first()
-        if not task:
-            return None
-
-        # Reset cadence action count & interval start for next oversight window
-        prev_res = task.execution_result if isinstance(task.execution_result, dict) else {}
-        if reset_cadence:
-            prev_res["action_count"] = 0
-            prev_res["cadence_interval_start"] = datetime.now(timezone.utc).isoformat()
-            task.execution_result = prev_res
-            db.commit()
-
-        intent_to_run = amended_intent or task.prompt or "Resume autonomous execution"
-        run_agent_workflow(task_id=task.id, intent=intent_to_run, mode="AUTONOMOUS", db_session=db)
-        db.refresh(task)
-        return task
-    finally:
-        if should_close:
-            db.close()
-
-
 @app.post("/tasks/")
 def create_task(request: TaskRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     from datetime import datetime, timedelta
