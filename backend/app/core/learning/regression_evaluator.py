@@ -17,7 +17,8 @@ class RegressionEvaluator:
     def evaluate_regressions(
         cls,
         candidate: LearningCandidate,
-        benchmark_runners: Optional[List[Callable[[], bool]]] = None
+        benchmark_runners: Optional[List[Callable[[], bool]]] = None,
+        eval_episodes: Optional[List[Dict[str, Any]]] = None
     ) -> RegressionTestResult:
         """
         Runs benchmark assertions against the candidate. Fails closed if any regression is found.
@@ -25,9 +26,36 @@ class RegressionEvaluator:
         runners = benchmark_runners or []
         regressions_detected = 0
         details: List[str] = []
+        benchmark_count = 0
 
-        if not runners:
-            # Default canonical benchmark checks
+        # 1. Evaluate per-episode regressions from held-out episode set E (§19.5)
+        if eval_episodes:
+            benchmark_count += len(eval_episodes)
+            for idx, ep in enumerate(eval_episodes, start=1):
+                ep_tenant = ep.get("tenant_id")
+                if ep_tenant and ep_tenant != candidate.tenant_id:
+                    raise ValueError(f"Cross-tenant evaluation episode rejected: '{ep_tenant}' != '{candidate.tenant_id}'.")
+                score_u = float(ep.get("outcome_score_u", ep.get("score_u", 1.0)))
+                score_base = float(ep.get("outcome_score_baseline", ep.get("score_baseline", 0.0)))
+                if score_u < score_base or ep.get("regression") is True:
+                    regressions_detected += 1
+                    ep_id = ep.get("task_id") or ep.get("event_id") or f"ep_{idx}"
+                    details.append(f"Episode {ep_id} regressed: candidate ({score_u}) < baseline ({score_base}).")
+
+        # 2. Evaluate benchmark runners if provided
+        if runners:
+            benchmark_count += len(runners)
+            for idx, runner in enumerate(runners, start=1):
+                try:
+                    ok = runner()
+                    if not ok:
+                        regressions_detected += 1
+                        details.append(f"Benchmark {idx} failed regression check.")
+                except Exception as ex:
+                    regressions_detected += 1
+                    details.append(f"Benchmark {idx} exception: {type(ex).__name__} - {str(ex)}")
+        elif not eval_episodes:
+            # Default canonical structural checks only when no eval_episodes and no runners
             benchmark_count = 3
             # Check 1: Non-empty action template
             if not candidate.action_template:
@@ -43,17 +71,6 @@ class RegressionEvaluator:
             if not candidate.tenant_id or not candidate.tenant_id.strip():
                 regressions_detected += 1
                 details.append("Regression: Corrupted tenant scope.")
-        else:
-            benchmark_count = len(runners)
-            for idx, runner in enumerate(runners, start=1):
-                try:
-                    ok = runner()
-                    if not ok:
-                        regressions_detected += 1
-                        details.append(f"Benchmark {idx} failed regression check.")
-                except Exception as ex:
-                    regressions_detected += 1
-                    details.append(f"Benchmark {idx} exception: {type(ex).__name__} - {str(ex)}")
 
         passed = (regressions_detected == 0)
         return RegressionTestResult(

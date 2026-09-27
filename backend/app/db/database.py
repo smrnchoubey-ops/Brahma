@@ -13,7 +13,12 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("CRITICAL: DATABASE_URL environment variable is missing. Please configure it in your environment.")
 
-engine = create_engine(DATABASE_URL)
+engine = create_engine(
+    DATABASE_URL,
+    pool_size=20,
+    max_overflow=40,
+    pool_pre_ping=True
+)
 
 SessionLocal = sessionmaker(
     autocommit=False,

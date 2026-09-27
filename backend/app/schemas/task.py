@@ -6,6 +6,7 @@ from typing import Any
 class TaskCreate(BaseModel):
     title: str
     prompt: str
+    user_id: int | None = None
 
 
 class TaskResponse(BaseModel):

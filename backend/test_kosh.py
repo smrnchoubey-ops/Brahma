@@ -12,23 +12,23 @@ if not DB_URL:
     print("ERROR: DATABASE_URL is not configured in the environment.")
     sys.exit(1)
 
-def insert_knowledge(title, content):
+def insert_knowledge(title, content, tenant_id="tenant_default"):
     embedding = generate_embedding(content)
     embedding_str = "[" + ",".join(map(str, embedding)) + "]"
     
     conn = psycopg2.connect(DB_URL)
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO knowledge (title, content, embedding) VALUES (%s, %s, %s)",
-        (title, content, embedding_str)
+        "INSERT INTO knowledge (tenant_id, title, content, embedding) VALUES (%s, %s, %s, %s)",
+        (tenant_id, title, content, embedding_str)
     )
     conn.commit()
     conn.close()
     print(f"Inserted knowledge: {title}")
 
-def search_knowledge(query):
+def search_knowledge(query, tenant_id="tenant_default"):
     from app.services.kosh_service import kosh
-    results = kosh.retrieve(query)
+    results = kosh.retrieve(query=query, tenant_id=tenant_id)
     print(f"Results for '{query}':")
     for r in results:
         print(f" - {r['title']}: {r['content']}")

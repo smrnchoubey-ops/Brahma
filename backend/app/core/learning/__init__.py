@@ -16,6 +16,16 @@ from app.core.learning.shadow_evaluator import ShadowEvaluator
 from app.core.learning.regression_evaluator import RegressionEvaluator
 from app.core.learning.stewardship import F15EvolutionarySteward, StewardshipError
 from app.core.learning.service import LearningService
+from app.core.learning.ingestion import LearningIngestionService
+from app.core.learning.verifiers import BaseDomainVerifier, VerifierOutcome, IndependentCalculatorVerifier
+from app.core.learning.policies import (
+    BaseExecutionPolicy,
+    IncumbentBaselinePolicy,
+    CandidateExecutionPolicy,
+    PolicyExecutionResult,
+    IncumbentCalculatorBaselinePolicy,
+    CalculatorCandidatePolicy
+)
 
 __all__ = [
     "PatternStatus",
@@ -31,5 +41,15 @@ __all__ = [
     "RegressionEvaluator",
     "F15EvolutionarySteward",
     "StewardshipError",
-    "LearningService"
+    "LearningService",
+    "LearningIngestionService",
+    "BaseDomainVerifier",
+    "VerifierOutcome",
+    "IndependentCalculatorVerifier",
+    "BaseExecutionPolicy",
+    "IncumbentBaselinePolicy",
+    "CandidateExecutionPolicy",
+    "PolicyExecutionResult",
+    "IncumbentCalculatorBaselinePolicy",
+    "CalculatorCandidatePolicy"
 ]

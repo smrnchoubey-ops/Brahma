@@ -19,6 +19,7 @@ from app.api.auth import router as auth_router, get_current_user
 from app.api.routes.upload import router as upload_router
 from app.api.routes.chitra import router as chitra_router
 from app.api.routes.manush import router as manush_router
+from app.api.routes.federation import router as federation_router
 from agents.graph import brahma_app
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,7 @@ app.include_router(auth_router, prefix="/auth", tags=["auth"])
 app.include_router(upload_router)
 app.include_router(chitra_router)
 app.include_router(manush_router)
+app.include_router(federation_router, prefix="/api/federation", tags=["federation"])
 
 
 @app.on_event("startup")
@@ -316,17 +318,30 @@ def run_agent_workflow(task_id: int, intent: str, mode: Optional[str] = None, db
                 # Fail-open: periodic cadence evaluation error must never break task execution
                 logger.warning(f"Periodic oversight cadence tracking error (fail-open): {ce}")
 
-        # F14 Learning Trigger: automatically initiate pattern extraction if task completed
+        # Live Non-Authoritative Shadow Evaluation Hook (§17.3, §17.4)
         if task.status == "COMPLETED":
             try:
-                _trigger_f14_pattern_extraction_async(
-                    tenant_id=f"tenant_{task.user_id}",
+                from app.core.learning.shadow_evaluator import ShadowEvaluator
+                tenant_id = f"tenant_{task.user_id}" if task.user_id else "tenant_global"
+                ShadowEvaluator.dispatch_live_shadow_evaluation(
+                    task_id=task.id,
                     user_id=task.user_id,
-                    current_task_id=task.id
+                    tenant_id=tenant_id,
+                    prompt=task.prompt or "",
+                    execution_result=task.execution_result if isinstance(task.execution_result, dict) else None
                 )
+            except Exception as se:
+                # Fail-open guarantee: shadow processing error must never break task completion
+                logger.warning(f"Live Shadow Evaluation Hook Notice (fail-open): {se}")
+
+        # F14 / F15 Autonomous Learning Hook (§19.5, §20.3)
+        if task.status == "COMPLETED":
+            try:
+                from app.core.learning.ingestion import LearningIngestionService
+                LearningIngestionService.on_task_completed(db=db, task=task)
             except Exception as e:
                 # Fail-open: learning trigger must never impact task completion
-                logger.warning(f"Failed to dispatch F14 pattern extraction trigger (fail-open): {e}")
+                logger.warning(f"Learning Ingestion Hook Notice (fail-open): {e}")
     except Exception as e:
         db.rollback()
         task = db.query(Task).filter(Task.id == task_id).first()

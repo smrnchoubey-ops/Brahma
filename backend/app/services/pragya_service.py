@@ -9,10 +9,13 @@ MODEL = os.getenv("LLM_MODEL", "llama3.2:3b")
 
 class PragyaService:
 
-    def answer(self, query: str):
+    def answer(self, query: str, tenant_id: str):
+        if not tenant_id or not isinstance(tenant_id, str) or not tenant_id.strip():
+            raise ValueError("Security Violation: PRAGYA reasoning requires a non-empty tenant_id (CA-008 fail-closed).")
 
-        # Retrieve knowledge from KOSH
-        docs = kosh.retrieve(query)
+        # Retrieve knowledge from KOSH strictly scoped to tenant
+        docs = kosh.retrieve(query=query, tenant_id=tenant_id.strip())
+
 
         if docs:
             context = "\n\n".join([doc["content"] for doc in docs])

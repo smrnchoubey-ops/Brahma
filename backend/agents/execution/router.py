@@ -30,7 +30,7 @@ def _resolve_action_and_params(state: Dict[str, Any]) -> Tuple[str, Dict[str, An
     # 1. First: Check for explicitly disallowed dangerous tools in plan
     for tool in tools_needed:
         for blocked in DISALLOWED_TOOL_KEYWORDS:
-            if blocked in tool:
+            if re.search(rf"\b{re.escape(blocked)}\b", tool):
                 raise ActionSecurityError(f"Action '{tool}' violates security policy (Disallowed keyword: '{blocked}').")
                 
     # Also check raw intent for obvious malicious attempts trying to bypass to Rachit

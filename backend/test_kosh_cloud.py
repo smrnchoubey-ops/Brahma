@@ -26,6 +26,28 @@ class TestKoshCloudPortability(unittest.TestCase):
     dimension validation, and upload rollback safety.
     """
 
+    @classmethod
+    def setUpClass(cls):
+        """Seed test knowledge document for semantic retrieval tests if not already present."""
+        db = SessionLocal()
+        try:
+            doc = db.query(Knowledge).filter(
+                Knowledge.tenant_id == "tenant_default",
+                Knowledge.title == "Project Phoenix Guidelines"
+            ).first()
+            if not doc:
+                embedding = generate_embedding("All databases related to Project Phoenix must be backed up daily to the cold storage server.")
+                doc = Knowledge(
+                    tenant_id="tenant_default",
+                    title="Project Phoenix Guidelines",
+                    content="All databases related to Project Phoenix must be backed up daily to the cold storage server.",
+                    embedding=embedding
+                )
+                db.add(doc)
+                db.commit()
+        finally:
+            db.close()
+
     def test_01_ollama_provider_config_and_generation(self):
         """Test 1: Verify Ollama config loading and real local 768-dim embedding generation."""
         print("\n[TEST 1] Testing Ollama provider configuration and local 768-dim generation...")
@@ -99,7 +121,7 @@ class TestKoshCloudPortability(unittest.TestCase):
     def test_04_kosh_semantic_retrieval(self):
         """Test 4: Verify KOSH retrieval flow: query -> embedding -> pgvector similarity search."""
         print("\n[TEST 4] Testing KOSH semantic retrieval against active pgvector store...")
-        results = kosh.retrieve("What is the backup policy for Project Phoenix?")
+        results = kosh.retrieve("What is the backup policy for Project Phoenix?", tenant_id="tenant_default")
         self.assertIsInstance(results, list)
         self.assertGreater(len(results), 0)
         
@@ -124,17 +146,25 @@ class TestKoshCloudPortability(unittest.TestCase):
         dummy_file = MagicMock()
         dummy_file.filename = "corrupted_document.pdf"
         dummy_file.read = AsyncMock(return_value=b"%PDF-1.4 dummy content")
+        dummy_user = MagicMock()
+        dummy_user.id = 1
+        dummy_user.username = "testuser"
+        dummy_user.tenant_id = "tenant_default"
 
-        # Mock pdf extraction and chunking, but cause generate_embedding to fail
-        with patch("app.api.routes.upload.extract_text", return_value="Sample text requiring embedding"):
-            with patch("app.api.routes.upload.split_into_chunks", return_value=["Chunk 1", "Chunk 2"]):
-                with patch("app.api.routes.upload.generate_embedding", side_effect=EmbeddingProviderError("Simulated provider outage")):
-                    import asyncio
-                    with self.assertRaises(HTTPException) as ctx:
-                        asyncio.run(upload_pdf(dummy_file))
-                    
-                    self.assertEqual(ctx.exception.status_code, 500)
-                    self.assertIn("Document upload failed during embedding generation", ctx.exception.detail)
+        test_db = SessionLocal()
+        try:
+            # Mock pdf extraction and chunking, but cause generate_embedding to fail
+            with patch("app.api.routes.upload.extract_text", return_value="Sample text requiring embedding"):
+                with patch("app.api.routes.upload.split_into_chunks", return_value=["Chunk 1", "Chunk 2"]):
+                    with patch("app.api.routes.upload.generate_embedding", side_effect=EmbeddingProviderError("Simulated provider outage")):
+                        import asyncio
+                        with self.assertRaises(HTTPException) as ctx:
+                            asyncio.run(upload_pdf(dummy_file, db=test_db, current_user=dummy_user))
+
+                        self.assertEqual(ctx.exception.status_code, 500)
+                        self.assertIn("Document upload failed during embedding generation", ctx.exception.detail)
+        finally:
+            test_db.close()
 
         # Confirm rollback: row count must not have changed
         db = SessionLocal()
@@ -157,7 +187,7 @@ class TestKoshCloudPortability(unittest.TestCase):
                 db = SessionLocal()
                 try:
                     # Run semantic search in cloud mode
-                    results = semantic_search(db, "Timesheets and holiday calendar", top_k=2)
+                    results = semantic_search(db, "Timesheets and holiday calendar", tenant_id="tenant_default", top_k=2)
                     self.assertIsInstance(results, list)
                     print(f" -> PASS: Cloud simulation executed successfully without Ollama dependency.")
                 finally:

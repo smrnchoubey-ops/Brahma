@@ -35,10 +35,11 @@ async def upload_pdf(
             embedding = generate_embedding(chunk)
 
             knowledge = Knowledge(
+                tenant_id=getattr(current_user, "tenant_id", "tenant_default") if current_user else "tenant_default",
                 title=file.filename,
                 content=chunk,
                 embedding=embedding,
-                user_id=current_user.id
+                user_id=getattr(current_user, "id", None) if current_user else None
             )
             db.add(knowledge)
 

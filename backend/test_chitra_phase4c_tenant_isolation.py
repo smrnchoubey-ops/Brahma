@@ -155,8 +155,8 @@ def run_all_phase4c_tests():
     # -------------------------------------------------------------
     print("\n[Test 6] Cross-Tenant KOSH Knowledge Base Isolation...", flush=True)
     # Populate knowledge for Alice and Bob
-    k_alice = Knowledge(user_id=alice_id, title="Alice Doc", content="Alice Proprietary Algorithm")
-    k_bob = Knowledge(user_id=bob_id, title="Bob Doc", content="Bob M&A Strategy")
+    k_alice = Knowledge(tenant_id=f"tenant_{alice_id}", user_id=alice_id, title="Alice Doc", content="Alice Proprietary Algorithm")
+    k_bob = Knowledge(tenant_id=f"tenant_{bob_id}", user_id=bob_id, title="Bob Doc", content="Bob M&A Strategy")
     db.add_all([k_alice, k_bob])
     db.commit()
 

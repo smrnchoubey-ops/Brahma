@@ -97,6 +97,12 @@ class F15EvolutionarySteward:
             raise StewardshipError(f"Cannot deploy candidate in status '{candidate.status.value}' to SHADOW. Expected VALIDATED.")
 
         candidate.status = PatternStatus.SHADOW
+        now_iso = datetime.now(timezone.utc).isoformat()
+        if not candidate.metadata.get("shadow_entered_at"):
+            candidate.metadata["shadow_entered_at"] = now_iso
+        candidate.metadata.setdefault("shadow_eval_count", 0)
+        candidate.metadata.setdefault("live_shadow_evaluations", [])
+
         cls._log_chitra_event(
             candidate=candidate, event_type="shadow_deployed",
             outcome="Candidate deployed to non-authoritative shadow evaluation mode",
@@ -131,32 +137,65 @@ class F15EvolutionarySteward:
         candidate.regression_passed = regression_result.passed
         candidate.shadow_passed = shadow_result.passed if shadow_result else True
 
+        # Extract comparative evaluation provenance (§17.4, §19.5, §20.3)
+        comparative_provenance = (
+            shadow_result.evidence.get("comparative_provenance", [])
+            if shadow_result and isinstance(shadow_result.evidence, dict)
+            else []
+        )
+        if comparative_provenance:
+            candidate.metadata["comparative_provenance"] = comparative_provenance
+            candidate.metadata["tau_LE"] = le_result.threshold
+            candidate.metadata["lambda_reg"] = le_result.factors.get("lambda_reg", 0.50)
+            candidate.metadata["regression_count"] = le_result.factors.get("regression_count", 0)
+            candidate.metadata["LE"] = le_result.le_score
+
         # Check all promotion gates fail-closed
         if not candidate.constitutional_approved:
             candidate.status = PatternStatus.REJECTED
             msg = "Promotion blocked: Constitutional safety check not approved."
-            cls._log_chitra_event(candidate, "rejected", msg, db_session, user_id, task_id)
+            cls._log_chitra_event(
+                candidate=candidate, event_type="rejected", outcome=msg,
+                db_session=db_session, user_id=user_id, task_id=task_id,
+                comparative_provenance=comparative_provenance,
+                le_result=le_result, regression_result=regression_result
+            )
             cls._persist_candidate(candidate=candidate, db_session=db_session)
             return False, msg
 
         if not regression_result.passed or regression_result.regressions_detected > 0:
             candidate.status = PatternStatus.REJECTED
             msg = f"Promotion blocked: {regression_result.regressions_detected} regressions detected."
-            cls._log_chitra_event(candidate, "rejected", msg, db_session, user_id, task_id)
+            cls._log_chitra_event(
+                candidate=candidate, event_type="rejected", outcome=msg,
+                db_session=db_session, user_id=user_id, task_id=task_id,
+                comparative_provenance=comparative_provenance,
+                le_result=le_result, regression_result=regression_result
+            )
             cls._persist_candidate(candidate=candidate, db_session=db_session)
             return False, msg
 
         if not le_result.passed:
             candidate.status = PatternStatus.REJECTED
             msg = f"Promotion blocked: LE Score {le_result.le_score} below required threshold {le_result.threshold}."
-            cls._log_chitra_event(candidate, "rejected", msg, db_session, user_id, task_id)
+            cls._log_chitra_event(
+                candidate=candidate, event_type="rejected", outcome=msg,
+                db_session=db_session, user_id=user_id, task_id=task_id,
+                comparative_provenance=comparative_provenance,
+                le_result=le_result, regression_result=regression_result
+            )
             cls._persist_candidate(candidate=candidate, db_session=db_session)
             return False, msg
 
         if shadow_result and not shadow_result.passed:
             candidate.status = PatternStatus.REJECTED
             msg = "Promotion blocked: Shadow evaluation failed to beat or match baseline."
-            cls._log_chitra_event(candidate, "rejected", msg, db_session, user_id, task_id)
+            cls._log_chitra_event(
+                candidate=candidate, event_type="rejected", outcome=msg,
+                db_session=db_session, user_id=user_id, task_id=task_id,
+                comparative_provenance=comparative_provenance,
+                le_result=le_result, regression_result=regression_result
+            )
             cls._persist_candidate(candidate=candidate, db_session=db_session)
             return False, msg
 
@@ -164,7 +203,12 @@ class F15EvolutionarySteward:
         candidate.status = PatternStatus.PROMOTED
         candidate.promoted_at = datetime.now(timezone.utc).isoformat()
         msg = f"Candidate {candidate.pattern_id} PROMOTED successfully (LE Score: {candidate.le_score})."
-        cls._log_chitra_event(candidate, "promoted", msg, db_session, user_id, task_id)
+        cls._log_chitra_event(
+            candidate=candidate, event_type="promoted", outcome=msg,
+            db_session=db_session, user_id=user_id, task_id=task_id,
+            comparative_provenance=comparative_provenance,
+            le_result=le_result, regression_result=regression_result
+        )
         cls._persist_candidate(candidate=candidate, db_session=db_session)
         return True, msg
 
@@ -310,24 +354,37 @@ class F15EvolutionarySteward:
         outcome: str,
         db_session: Optional[Session] = None,
         user_id: Optional[int] = None,
-        task_id: Optional[int] = None
+        task_id: Optional[int] = None,
+        comparative_provenance: Optional[List[Dict[str, Any]]] = None,
+        le_result: Optional[LEResult] = None,
+        regression_result: Optional[RegressionTestResult] = None
     ) -> None:
-        """Appends canonical CHITRA Learning audit event."""
+        """Appends canonical CHITRA Learning audit event with full comparative provenance (§17.4, §19.5, §20.3)."""
         if db_session and task_id:
             try:
+                decision_payload: Dict[str, Any] = {
+                    "pattern_id": candidate.pattern_id,
+                    "tenant_id": candidate.tenant_id,
+                    "status": candidate.status.value,
+                    "le_score": candidate.le_score,
+                    "version": candidate.version,
+                    "pattern_type": candidate.pattern_type.value
+                }
+                if comparative_provenance:
+                    decision_payload["comparative_provenance"] = comparative_provenance
+                if le_result:
+                    decision_payload["tau_LE"] = le_result.threshold
+                    decision_payload["lambda_reg"] = le_result.factors.get("lambda_reg", 0.50)
+                    decision_payload["regression_count"] = le_result.factors.get("regression_count", 0)
+                    decision_payload["mean_delta"] = le_result.factors.get("mean_outcome_delta", 0.0)
+                    decision_payload["LE"] = le_result.le_score
+
                 chitra_repository.append_event(
                     db=db_session,
                     task_id=task_id,
                     faculty="LEARNING",
                     event_type=event_type,
-                    decision={
-                        "pattern_id": candidate.pattern_id,
-                        "tenant_id": candidate.tenant_id,
-                        "status": candidate.status.value,
-                        "le_score": candidate.le_score,
-                        "version": candidate.version,
-                        "pattern_type": candidate.pattern_type.value
-                    },
+                    decision=decision_payload,
                     confidence=candidate.confidence,
                     outcome=outcome,
                     session_id=f"ses_learn_{candidate.pattern_id}",

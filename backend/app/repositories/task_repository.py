@@ -5,10 +5,12 @@ from app.schemas.task import TaskCreate
 from app.services.agent_service import run_agent
 
 
-def create_task(db: Session, task: TaskCreate):
+def create_task(db: Session, task: TaskCreate, user_id: int | None = None):
+    eff_user_id = user_id or getattr(task, "user_id", None)
 
     # Create initial task
     db_task = Task(
+        user_id=eff_user_id,
         title=task.title,
         prompt=task.prompt,
         status="PENDING",
@@ -82,6 +84,16 @@ def create_task(db: Session, task: TaskCreate):
 
     db.commit()
     db.refresh(db_task)
+
+    # --------------------------
+    # Autonomous Learning Hook (§20.3 & F14/F15)
+    # --------------------------
+    if db_task.status == "COMPLETED":
+        try:
+            from app.core.learning.ingestion import LearningIngestionService
+            LearningIngestionService.on_task_completed(db=db, task=db_task)
+        except Exception as e:
+            print("Learning Ingestion Hook Notice:", e)
 
     return db_task
 
